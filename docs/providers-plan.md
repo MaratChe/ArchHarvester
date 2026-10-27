@@ -1,0 +1,11 @@
+# OpenAI-compatible providers — версия0.5
+
+Авторизовано пользователем: расширить локальную Ollama другими провайдерами (OpenRouter, LiteLLM и совместимые). Расширение существующего этапа8; UI review и серверная валидация остаются общими.
+
+- Именованные неизменяемые профили: base URL, имя, формат ответа (`json_object` по умолчанию / `json_schema` / `text`), параметр лимита токенов, метка версии deployment. Ключ отдельно в Windows Credential Manager (namespace Providers), ротация/удаление, отключение профиля. URL можно изменить только новым профилем.
+- HTTP допускается для loopback LiteLLM, HTTPS для остальных. Без redirect/proxy-перенаправления ключа; пути `/models`, `/chat/completions`, `/embeddings` дописываются к base URL. Нет automatic fallback/retry, чтобы не дублировать платные запросы. Неизвестные модели можно ввести вручную: `/models` не обязателен.
+- Клиент переводит chat/embeddings в стандарт OpenAI, убирает Ollama-specific параметры, валидирует завершение/JSON/evidence существующим кодом. Для text/json_object JSON-контракт явно входит в prompt. Неподдерживаемый format можно сменить новым профилем, без тихого автоматического ослабления.
+- Отдельный provider ID для извлечения и embedding; сохраняется в pipeline, provenance и поколении индекса. Поиск автоматически использует провайдера активного индекса. Отказ/отключение — fallback FTS.
+- У совместимого API обычно нет digest весов. Сохранять честный `identity_kind=configuration`: fingerprint endpoint/profile/deployment revision/credential revision + actual response model. Не выдавать его за hash весов. При смене deployment под тем же alias нужна новая метка/профиль и переиндексация. Embedding-response model проверяется между batch/query, если сервер его сообщает.
+- UI: экран «Модели и API», управление профилями, отдельные селекторы провайдера/модели, явная информация о передаче текста выбранному серверу. Добавить выбор профиля в редактор LLM-шагов. Встроенная Ollama остаётся default.
+- TDD adapter/transport/auth/errors/index isolation/профили/ключи; fake OpenAI server browser QA и совместимый endpoint установленной Ollama без ключа. Не обращаться к платным внешним сервисам без настроенного пользователем подключения. Финальный независимый review, backup, миграция на копии, обновление8765.

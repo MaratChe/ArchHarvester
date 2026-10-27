@@ -1,0 +1,26 @@
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/
+frontend/dist/
+.local-data/
+output/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+.codex/
+*.log
+*.pem
+*.key
+*.pfx
+*.p12
+# Local documents; synthetic tests/fixtures remain versioned.
+/docs/*.htm
+/docs/*.html
+/docs/*.pptx
+/docs/*.files/
+.playwright-cli/
+*.tsbuildinfo
