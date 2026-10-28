@@ -26,6 +26,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def create_app(data_dir: Path | None = None, *, secret_store=None, confluence_client_factory=None, start_worker=True, frontend_dir: Path | None = None, provider_secret_store=None, provider_transport=None):
+    from .tls import client_ssl_context
+    client_ssl_context()  # Fail early on invalid corporate trust configuration.
     directory = data_dir or Path(os.environ.get("ARCH_REGISTRY_DATA", str(Path(os.environ.get("LOCALAPPDATA", Path.home())) / "ArchitectureRegistryStudio")))
     db = Database(Path(directory))
     from .providers import ProviderRegistry

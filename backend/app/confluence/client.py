@@ -4,6 +4,7 @@ import re
 import time
 from urllib.parse import parse_qsl, urlencode, urlsplit
 import httpx
+from ..tls import client_ssl_context
 
 
 class ConfluenceError(Exception):
@@ -30,7 +31,8 @@ class ConfluenceClient:
         self.base_url = normalize_url(base_url)
         self.sleep = sleep
         self.client = httpx.Client(headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
-                                   timeout=httpx.Timeout(20, connect=10), follow_redirects=False, transport=transport)
+                                   timeout=httpx.Timeout(20, connect=10), follow_redirects=False, transport=transport,
+                                   verify=client_ssl_context())
 
     def __enter__(self): return self
     def __exit__(self, *args): self.client.close()

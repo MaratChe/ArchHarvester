@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from .ollama import Ollama
 from .registry import require
 from .db import providers
+from .tls import client_ssl_context
 from .confluence.credentials import WindowsCredentials
 
 
@@ -45,7 +46,7 @@ class OpenAICompatible:
         headers={'Accept':'application/json'}
         if self.key:headers['Authorization']='Bearer '+self.key
         try:
-            with httpx.Client(transport=self.transport,trust_env=False,follow_redirects=False,timeout=httpx.Timeout(180,connect=10),headers=headers) as client:
+            with httpx.Client(transport=self.transport,trust_env=False,follow_redirects=False,timeout=httpx.Timeout(180,connect=10),headers=headers,verify=client_ssl_context()) as client:
                 with client.stream(method,self.base_url+path,json=payload) as response:
                     if response.status_code!=200:
                         descriptions={401:'API-ключ не принят',403:'Нет доступа к модели/API',404:'Endpoint или модель не найдены',429:'Лимит запросов или бюджета провайдера'}

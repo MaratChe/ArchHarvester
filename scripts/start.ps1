@@ -1,11 +1,14 @@
-param([int]$Port = 8765, [string]$DataDir = '', [switch]$NoBrowser)
+param([int]$Port = 8765, [string]$DataDir = '', [switch]$NoBrowser, [string]$CaBundle = '')
 $ErrorActionPreference = 'Stop'
+if ($CaBundle) { $env:ARCH_REGISTRY_CA_BUNDLE = (Resolve-Path -LiteralPath $CaBundle -ErrorAction Stop).Path }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $projectRoot
 $pythonPath = Join-Path $projectRoot '.venv/Scripts/python.exe'
 if (-not (Test-Path -LiteralPath $pythonPath)) { throw 'Run scripts/setup.ps1 first.' }
 if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'frontend/dist/index.html'))) { throw 'Build frontend first: npm --prefix frontend run build' }
 if ($DataDir) { $env:ARCH_REGISTRY_DATA = $DataDir }
+& $pythonPath -c "from backend.app.tls import client_ssl_context; client_ssl_context()"
+if ($LASTEXITCODE -ne 0) { throw 'HTTPS certificate configuration is invalid.' }
 $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $Port)
 try { $listener.Start() } finally { $listener.Stop() }
 if (-not $NoBrowser) {
