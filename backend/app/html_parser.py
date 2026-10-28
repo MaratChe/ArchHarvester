@@ -70,7 +70,8 @@ def parse_html(content: bytes, snapshot_id: str, *, anchor_paths=None):
         text = clean_text(body if body is not None else root)
         if text:
             blocks.append({"id": "b0", "kind": "text", "level": None, "text": text, "html_path": "/html/body"})
-    return {"contract_version": 1, "snapshot_id": snapshot_id, "blocks": blocks, "tables": tables, "warnings": warnings}
+    return {"contract_version": 1, "snapshot_id": snapshot_id, "blocks": blocks, "tables": tables, "warnings": warnings,
+            "html": etree.tostring(root, encoding='unicode', method='html')}
 
 
 def extract(document, schema, mode="table", table_index=None):

@@ -9,9 +9,9 @@ from .html_parser import extract
 def validate_steps(steps, schema):
     if not isinstance(steps, list) or not 1 <= len(steps) <= 20: raise HTTPException(422, "Нужно от 1 до 20 шагов")
     for step in steps:
-        if not isinstance(step, dict) or step.get("kind") not in {"table", "sections", "between", "python", "llm"}:
+        if not isinstance(step, dict) or step.get("kind") not in {"table", "sections", "between", "python", "llm", "javascript"}:
             raise HTTPException(422, "Неизвестный вид шага")
-        allowed = {"kind", "overwrite"} | {"table": {"table_index"}, "sections": set(), "between": {"field", "start", "end"}, "python": {"code", "params"}, "llm": {"model","provider_id","prompt","include_previous"}}[step["kind"]]
+        allowed = {"kind", "overwrite"} | {"table": {"table_index"}, "sections": set(), "between": {"field", "start", "end"}, "python": {"code", "params"}, "javascript": {"code", "params"}, "llm": {"model","provider_id","prompt","include_previous"}}[step["kind"]]
         if set(step) - allowed: raise HTTPException(422, "Неизвестные параметры шага")
         if "overwrite" in step and type(step["overwrite"]) is not bool: raise HTTPException(422, "overwrite должен быть boolean")
         if step["kind"] == "table" and step.get("table_index") is not None and (type(step["table_index"]) is not int or step["table_index"] < 0):
@@ -20,8 +20,8 @@ def validate_steps(steps, schema):
             if step.get("field") not in schema["properties"]: raise HTTPException(422, "Поле правила отсутствует в схеме")
             if not all(isinstance(step.get(k), str) and 0 < len(step[k].strip()) <= 200 for k in ("start", "end")):
                 raise HTTPException(422, "Укажите две границы длиной до 200 символов")
-        if step["kind"] == "python":
-            if not isinstance(step.get("code"), str) or not 0 < len(step["code"].strip()) <= 32000: raise HTTPException(422, "Код Python: от 1 до 32000 символов")
+        if step["kind"] in {"python", "javascript"}:
+            if not isinstance(step.get("code"), str) or not 0 < len(step["code"].strip()) <= 32000: raise HTTPException(422, "Код скрипта: от 1 до 32000 символов")
             if not isinstance(step.get("params", {}), dict): raise HTTPException(422, "params должен быть объектом")
         if step['kind']=='llm':
             if not isinstance(step.get('prompt',''),str) or len(step.get('prompt',''))>4000:raise HTTPException(422,'Инструкция LLM — строка до 4000 символов')
@@ -31,15 +31,15 @@ def validate_steps(steps, schema):
     if len(json.dumps(steps, ensure_ascii=False)) > 100000: raise HTTPException(422, "Слишком большой пайплайн")
 
 
-def run_pipeline(document, schema, steps, *, expected_runtime=None,client_factory=None):
+def run_pipeline(document, schema, steps, *, expected_runtime=None,expected_js_runtime=None,client_factory=None):
     audit={'llm_runs':[],'_llm_raw':[]}
-    try:return _run_pipeline(document,schema,steps,expected_runtime=expected_runtime,client_factory=client_factory,audit=audit)
+    try:return _run_pipeline(document,schema,steps,expected_runtime=expected_runtime,expected_js_runtime=expected_js_runtime,client_factory=client_factory,audit=audit)
     except HTTPException as exc:
         exc.llm_completed=audit
         raise
 
 
-def _run_pipeline(document,schema,steps,*,expected_runtime=None,client_factory=None,audit):
+def _run_pipeline(document,schema,steps,*,expected_runtime=None,expected_js_runtime=None,client_factory=None,audit):
     validate_steps(steps, schema)
     proposals, warnings, diagnostics, conflicts = {}, list(document.get("warnings", [])), [], set()
     block_map = {b["id"]: b for b in document["blocks"]}
@@ -75,6 +75,10 @@ def _run_pipeline(document,schema,steps,*,expected_runtime=None,client_factory=N
             result['metadata']['step']=index
             emitted,step_warnings=result['proposals'],result['warnings']
             llm_runs.append(result['metadata']);llm_raw.append({'id':result['metadata']['run_id'],**result['trace']})
+        elif kind == 'javascript':
+            from .javascript_runner import run_javascript
+            result = run_javascript(step['code'], document, step.get('params', {}), expected_runtime=expected_js_runtime)
+            emitted, step_warnings = result.get('proposals'), result.get('warnings', [])
         else:
             from .python_runner import run_python
             result = run_python(step["code"], document, step.get("params", {}), expected_runtime=expected_runtime)
@@ -107,6 +111,9 @@ def _run_pipeline(document,schema,steps,*,expected_runtime=None,client_factory=N
                 proposals[key]['evidence']=[{**evidence_for(document,block_map[e['block_id']]),'quote':e['quote']} for e in item['evidence']]
         warnings.extend(f"Шаг {index}: {w}" for w in step_warnings)
         diagnostics.append({"index": index, "kind": kind, "emitted_fields": [i.get("field") for i in emitted], "warnings": step_warnings})
+        if kind == 'javascript':
+            diagnostics[-1]['javascript_runtime_image_id'] = result['runtime_image_id']
+            diagnostics[-1]['files'] = result.get('files', [])
         if kind == "python": diagnostics[-1]["runtime_image_id"] = result["runtime_image_id"]
         if kind == 'llm':diagnostics[-1]['model_metadata']=result['metadata']
     if not proposals: warnings.append("Нет предложений: проверьте правила или заполните поля вручную")

@@ -35,10 +35,24 @@ def load_pipeline(c, id, type_id):
     return pipeline
 
 
+def script_document(document, db, steps):
+    if 'html' in document or document.get('format') == 'pptx' or not any(s['kind'] == 'javascript' for s in steps):
+        return document
+    # Older snapshots retain their block IDs and provenance; hydrate only HTML.
+    with db.engine.connect() as c:
+        snapshot = require(c, snapshots, document['snapshot_id'])
+    from .html_parser import parse_html
+    from .confluence.storage import parse_storage
+    parser = parse_storage if document.get('format') == 'confluence_storage' else parse_html
+    html = parser((db.directory / 'blobs' / snapshot['sha256']).read_bytes(), snapshot['id'])['html']
+    return {**document, 'html': html}
+
+
 def evaluate(document, schema, pipeline, *, db=None):
     if pipeline is None: return None, None
     from .providers import client_for
-    result = run_pipeline(document, schema, pipeline["steps"], expected_runtime=pipeline.get("runtime_image_id"),client_factory=(lambda id:client_for(db,id)) if db else None)
+    if db: document = script_document(document, db, pipeline["steps"])
+    result = run_pipeline(document, schema, pipeline["steps"], expected_runtime=pipeline.get("runtime_image_id"),expected_js_runtime=pipeline.get("javascript_runtime_image_id"),client_factory=(lambda id:client_for(db,id)) if db else None)
     return result, {"pipeline_id": pipeline["id"], "pipeline_version": f"{pipeline['key']}:{pipeline['version']}", "pipeline_hash": pipeline["hash"], "runtime_image_id": pipeline.get("runtime_image_id")}
 
 
@@ -48,6 +62,11 @@ def build_pipeline_router(db):
     @router.get("/pipelines")
     def listing():
         with db.engine.connect() as c: return list(c.execute(select(pipelines.c.data).order_by(pipelines.c.pipeline_key, pipelines.c.version.desc())).scalars())
+
+    @router.get("/javascript-runtime")
+    def javascript_runtime():
+        from .javascript_runner import runtime_status
+        return runtime_status()
 
     @router.get("/python-runtime")
     def runtime(): return runtime_status()
@@ -87,13 +106,13 @@ def build_pipeline_router(db):
         for snapshot in inputs:
             row = {"snapshot_id": snapshot["id"], "filename": snapshot["filename"]}
             try:
-                row["result"] = run_pipeline(snapshot["document"], schema, pipeline["steps"], expected_runtime=pipeline.get("runtime_image_id"),client_factory=lambda id:client_for(db,id))
+                row["result"] = run_pipeline(script_document(snapshot["document"], db, pipeline["steps"]), schema, pipeline["steps"], expected_runtime=pipeline.get("runtime_image_id"),expected_js_runtime=pipeline.get("javascript_runtime_image_id"),client_factory=lambda id:client_for(db,id))
                 from .llm_history import record
                 with db.transaction() as c:record(c,row['result'])
                 old = {}
                 if previous:
                     try:
-                        baseline_result = run_pipeline(snapshot["document"], schema, previous[-1]["steps"], expected_runtime=previous[-1].get("runtime_image_id"),client_factory=lambda id:client_for(db,id))
+                        baseline_result = run_pipeline(script_document(snapshot["document"], db, previous[-1]["steps"]), schema, previous[-1]["steps"], expected_runtime=previous[-1].get("runtime_image_id"),expected_js_runtime=previous[-1].get("javascript_runtime_image_id"),client_factory=lambda id:client_for(db,id))
                         with db.transaction() as c:record(c,baseline_result)
                         old=baseline_result['proposals']
                         row['baseline_llm_runs']=baseline_result.get('llm_runs',[])
@@ -122,6 +141,9 @@ def build_pipeline_router(db):
             if not runs or not runs[-1]["ok"]: raise HTTPException(409, "Сначала выполните успешный тест этой версии на сохранённом снимке")
             image_ids = {s["runtime_image_id"] for row in runs[-1]["results"] for s in row["result"]["steps"] if s.get("runtime_image_id")}
             if len(image_ids) > 1: raise HTTPException(409, "Образ исполнителя изменился во время теста; повторите тест")
+            js_ids = {s['javascript_runtime_image_id'] for row in runs[-1]['results'] for s in row['result']['steps'] if s.get('javascript_runtime_image_id')}
+            if len(js_ids) > 1: raise HTTPException(409, 'Образ JavaScript изменился во время теста; повторите тест')
+            pipeline['javascript_runtime_image_id'] = next(iter(js_ids), None)
             pipeline.update(status="published", published_at=now(), test_id=runs[-1]["id"], runtime_image_id=next(iter(image_ids), None))
             c.execute(pipelines.update().where(pipelines.c.id == id).values(data=pipeline))
             return pipeline

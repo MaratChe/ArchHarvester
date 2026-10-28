@@ -1,3 +1,4 @@
+import {ScriptResults} from './ScriptResults';
 import {useEffect, useState} from 'react';
 import {api, display} from './api';
 import type {Artifact, ArtifactType, Candidate, Fields, Snapshot} from './api';
@@ -30,6 +31,7 @@ export function Review({id,types,onDone,onError}:{id:string;types:ArtifactType[]
   return <>
     <div className="page-heading"><div><div className="eyebrow">Проверка переноса</div><h1>{candidate.target_id?'Обновление объекта':snapshot.document.format==='pptx'?'Новый объект из PPTX':snapshot.source_metadata?'Новый объект из Confluence':'Новый объект из HTML'}</h1><p>{candidate.source_name} · {type.name}</p></div><button onClick={()=>onDone()}>К списку</button></div>
     {candidate.warnings.length>0 && <div className="notice">{candidate.warnings.map((w,i)=><p key={i}>{w}</p>)}</div>}
+    <ScriptResults steps={candidate.step_results}/>
     {!pending && <div className="notice">Предложение уже обработано: {({accepted:'принято',rejected:'отклонено',superseded:'заменено новой загрузкой'} as Record<string,string>)[candidate.status]}.</div>}
     {stale && pending && <div className="notice">Объект изменился после загрузки. <button onClick={async()=>{try{await api(`/candidates/${id}/rebase`,{method:'POST'});await load();}catch(e){onError(e);}}}>Обновить сравнение</button><p>Несохранённые правки формы будут заменены актуальными значениями.</p></div>}
     <div className="review-grid">

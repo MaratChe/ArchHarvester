@@ -122,3 +122,13 @@
 - PowerShell start.ps1 получил -CaBundle; добавлены Git Bash setup.sh, start.sh и setup-python-runner.sh с преобразованием путей. README содержит команды и ограничения (Windows/Git Bash, не WSL; сертификаты подключаются при запуске, без UI).
 - Проверены синтаксис PowerShell/Bash, --help, реальный Git Bash запуск на 8777 с PEM и каталогом с пробелами: HTTP200. Только временная база output/gitbash smoke data; тестовый процесс остановлен. Рабочий процесс 8765 не перезапускался, для применения изменений нужен перезапуск.
 - Проверки TLS: обязательная верификация, дополнительный CA без замены системного контекста, настоящий PEM, отказ для отсутствующего/повреждённого файла, явный SSLContext в обоих клиентах. Корпоративные подключения с реальными CA не проверены.
+
+
+## Script Engine / Node.js Worker (28.10.2026, 0.7.0)
+- Новый шаг javascript: код, params, emit, warnings, toMarkdown и saveMarkdown. Node 22 Worker в отдельном ограниченном Docker-контейнере, без локального fallback. Образ закрепляется по ID независимо от Python. npm lock фиксирует Turndown/GFM.
+- HTML/Confluence передают очищенный нормализованный HTML; старые снимки дополняются из сохранённого blob без изменения блоков/доказательств. PPTX поддерживается через blocks, без document.html.
+- Редактор и JSON шагов поддерживают Script Engine. Отчёт и форма проверки показывают результаты JS, текст Markdown и скачивание .md. Схема, block IDs, конфликт/overwrite и ручное подтверждение сохранены.
+- Полный suite с RUN_DOCKER_TESTS=1: 129 passed, включая 9 реальных JS runtime checks и прежние Python isolation checks; одна существующая deprecation warning. Проверены таймаут бесконечного цикла, ошибки, недопустимые пути/размер файлов, схема/источники, изоляция сети/ФС, публикация/закрепление образа. Browser QA: редактор, исполнение, download page.md, публикация, review; мобильная ширина390 без overflow. Только временная output/js-browser. Первый многострочный CLI-вызов имел ошибку передачи синтаксиса; отдельные команды прошли.
+- TypeScript/Vite build успешен; PowerShell/Bash setup scripts прошли проверку синтаксиса. Образ architecture-registry-javascript:1 собран.
+- Перед запуском 8765 был свободен. Офлайн-backup: output/release-backup-07-20261028-214848. Рабочая0.7.0 запущена: HTTP200, новый bundle, JS runtime available. Все существующие таблицы совпали с backup (исключая TTL llm_outputs). QA остановлен; рабочий8765 оставлен. Корпоративный Confluence не вызывался.
+- Инструкция: docs/javascript-engine.md. Коммит/push в этой итерации не выполнялись.

@@ -1,7 +1,7 @@
 import {useEffect,useState} from 'react';
 import {api} from './api';
 
-export type Step={kind:'table'|'sections'|'between'|'python'|'llm';model?:string;prompt?:string;include_previous?:boolean;provider_id?:string;overwrite?:boolean;table_index?:number;field?:string;start?:string;end?:string;code?:string;params?:Record<string,unknown>};
+export type Step={kind:'table'|'sections'|'between'|'python'|'llm'|'javascript';model?:string;prompt?:string;include_previous?:boolean;provider_id?:string;overwrite?:boolean;table_index?:number;field?:string;start?:string;end?:string;code?:string;params?:Record<string,unknown>};
 export type Pipeline={id:string;key:string;name:string;version:number;status:string;type_id:string;steps:Step[];hash:string};
 
 export function PipelineSelect({typeId,value,onChange,onError}:{typeId:string;value:string;onChange:(id:string)=>void;onError:(e:unknown)=>void}){
