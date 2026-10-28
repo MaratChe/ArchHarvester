@@ -44,7 +44,7 @@ export default function App(){
   return <div className="app-shell">
     <aside className="sidebar"><div className="brand"><span className="brand-mark">A<span>↗</span></span><div>Архитектурный<br/><strong>реестр</strong></div></div><div className="workspace-label">Личное рабочее пространство</div>
       <nav aria-label="Основная навигация">{([['registry','Реестр объектов','▦'],['imports','Загрузка файлов','⇥'],['confluence','Confluence','↗'],['pptx','PPTX из Confluence','▤'],['pipelines','Пайплайны','≡'],['models','Модели и API','◎'],['types','Типы объектов','◇']] as const).map(([p,label,icon])=><button className={page===p?'nav active':'nav'} key={p} onClick={()=>navigate(p)}><span>{icon}</span>{label}{p==='imports'&&pending>0&&<b>{pending}</b>}</button>)}</nav>
-      <div className="sidebar-bottom"><span className="local-dot"/> Локально на компьютере<p>Реестр хранится локально.<br/>Сервер модели выбираете вы.</p><small>Версия 0.7 · Script Engine</small></div>
+      <div className="sidebar-bottom"><span className="local-dot"/> Локально на компьютере<p>Реестр хранится локально.<br/>Сервер модели выбираете вы.</p><small>Версия 0.8 · решения из PPTX</small></div>
     </aside>
     <main><header className="topbar"><span>Architecture Registry Studio</span><span className="muted">Объектов: {allItems.length} · на проверке: {pending}</span></header>
       <div className="content">{error&&<div className="error" role="alert"><strong>Не удалось выполнить действие</strong><pre>{error}</pre><button onClick={()=>setError('')}>Закрыть сообщение</button></div>}{message&&<div className="success" role="status">{message}</div>}

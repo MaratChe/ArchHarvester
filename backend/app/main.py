@@ -101,7 +101,7 @@ def create_app(data_dir: Path | None = None, *, secret_store=None, confluence_cl
 
     @app.get("/api/session")
     def session():
-        return {"token": token, "data_dir": str(directory), "version": "0.7.0"}
+        return {"token": token, "data_dir": str(directory), "version": "0.8.0"}
 
     @app.get("/api/types")
     def get_types():

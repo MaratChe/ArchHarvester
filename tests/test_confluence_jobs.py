@@ -35,7 +35,27 @@ def handler(req):
     if req.url.path.endswith("/search"):
         return httpx.Response(200,json={"results":[{"id":"1","title":"One","type":"page"},{"id":"2","title":"Two","type":"page"}],"_links":{}})
     page_id=req.url.path.rsplit("/",1)[-1]
-    return httpx.Response(200,json={"id":page_id,"type":"page","title":"Page "+page_id,"version":{"number":1},"body":{"storage":{"value":"<table><tr><td>Название</td><td>Same content</td></tr></table>"}}})
+    return httpx.Response(200,json={"id":page_id,"type":"page","title":"Page "+page_id,"version":{"number":1},"body":{"view":{"value":"<table><tr><td>Название</td><td>Same content</td></tr></table>"}}})
+
+
+def test_page_snapshot_download_is_html(tmp_path):
+    app, client, _ = setup_client(tmp_path, handler)
+    with client:
+        connection_id, type_id = config(client)
+        job = enqueue(client, connection_id, type_id).json()
+        app.state.confluence_worker.run_once()
+        item = client.get('/api/confluence/jobs/' + job['id']).json()['items'][0]
+        candidate = client.get('/api/candidates/' + item['candidate_id']).json()
+        snapshot = client.get('/api/snapshots/' + candidate['snapshot_id']).json()
+        assert snapshot['filename'] == 'confluence-1-v1.html'
+        assert snapshot['source_metadata']['format'] == 'html'
+        assert snapshot['document']['format'] == 'confluence_html'
+        assert '<table>' in snapshot['document']['html']
+        assert candidate['config']['pipeline_version'] == 'confluence-html-v1'
+        response = client.get('/api/snapshots/' + snapshot['id'] + '/download')
+        assert response.content.startswith(b'<!doctype html>')
+        assert '.html' in response.headers['content-disposition']
+        assert candidate['proposals']['title']['value'] == 'Same content'
 
 
 def enqueue(client,connection_id,type_id, **options):
@@ -177,7 +197,8 @@ def test_cancel_during_download_does_not_create_candidate(tmp_path):
 
 def test_retry_repairs_interrupted_blob_before_committing_snapshot(tmp_path):
     app,client,_=setup_client(tmp_path,handler)
-    content=b"<table><tr><td>\xd0\x9d\xd0\xb0\xd0\xb7\xd0\xb2\xd0\xb0\xd0\xbd\xd0\xb8\xd0\xb5</td><td>Same content</td></tr></table>"
+    with ConfluenceClient("https://wiki.example", "test", transport=httpx.MockTransport(handler)) as remote:
+        content = remote.fetch_page("1")["content"]
     digest=sha256(content).hexdigest()
     (tmp_path/"blobs"/digest).write_bytes(content[:10])
     with client:

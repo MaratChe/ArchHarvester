@@ -1,6 +1,6 @@
 [project]
 name = "architecture-registry-studio"
-version = "0.7.0"
+version = "0.8.0"
 requires-python = ">=3.13"
 dependencies = ["fastapi", "uvicorn", "sqlalchemy", "alembic", "lxml", "jsonschema", "python-multipart", "httpx", "python-pptx==1.0.2"]
 

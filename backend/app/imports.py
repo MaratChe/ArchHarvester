@@ -80,6 +80,8 @@ def import_html(db, connection, content, filename, type_id, mode, table_index, r
             snapshot["source_metadata"] = source_metadata
         connection.execute(snapshots.insert().values(id=snapshot_id, resource_id=resource_id, digest=snapshot_key, data=snapshot))
     config = {"mode": mode, "table_index": table_index, "pipeline_version": "pptx-v1" if source_kind == "pptx" else "confluence-storage-v1" if source_metadata else PIPELINE_VERSION}
+    if source_metadata and source_metadata.get('kind') == 'confluence_page' and source_metadata.get('format') == 'html':
+        config['pipeline_version'] = 'confluence-html-v1'
     if pipeline_config: config.update(pipeline_config)
     if prepared_result and prepared_result.get('llm_runs'):
         from .llm_history import record

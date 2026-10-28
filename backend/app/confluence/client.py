@@ -2,6 +2,7 @@
 import json
 import re
 import time
+from html import escape
 from urllib.parse import parse_qsl, urlencode, urlsplit
 import httpx
 from ..tls import client_ssl_context
@@ -121,14 +122,17 @@ class ConfluenceClient:
 
     def fetch_page(self, page_id):
         if not re.fullmatch(r"[0-9]+", page_id): raise ConfluenceError("invalid_id", "Некорректный ID страницы.")
-        data = self._json(self.base_url + "/rest/api/content/" + page_id, {"expand": "body.storage,version"})
+        data = self._json(self.base_url + "/rest/api/content/" + page_id, {"expand": "body.view,version"})
         try:
             if str(data["id"]) != page_id or data["type"] != "page": raise ValueError()
             version = data["version"]["number"]
-            storage = data["body"]["storage"]["value"]
-            if not isinstance(version, int) or version < 1 or not isinstance(storage, str): raise ValueError()
+            rendered = data["body"]["view"]["value"]
+            if type(version) is not int or version < 1 or not isinstance(rendered, str): raise ValueError()
         except (KeyError, TypeError, ValueError):
-            raise ConfluenceError("invalid_response", "Страница не содержит ожидаемые ID, version и body.storage.") from None
-        content = storage.encode("utf-8")
+            raise ConfluenceError("invalid_response", "Страница не содержит ожидаемые ID, version и HTML body.view.") from None
+        title = str(data.get('title', page_id))
+        content = ('<!doctype html>\n<html><head><meta charset="utf-8">'
+                   f'<title>{escape(title)}</title><base href="{escape(self.page_url(page_id), quote=True)}">'
+                   f'</head><body>{rendered}</body></html>').encode('utf-8')
         if len(content) > 5 * 1024 * 1024: raise ConfluenceError("too_large", "Содержимое страницы превышает 5 MiB.")
         return {"id": page_id, "title": str(data.get("title", page_id)), "url": self.page_url(page_id), "version": version, "content": content}

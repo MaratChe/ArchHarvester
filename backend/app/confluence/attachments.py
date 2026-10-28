@@ -46,6 +46,10 @@ def resolve_attachment(client, link):
         item = client._json(client.base_url + "/rest/api/content/" + attachment_id, {"expand": "version,container"})
     else:
         raise ConfluenceError("attachment_url", "Используйте ссылку download/attachments или ссылку с параметром preview.")
+    return attachment_metadata(client, item, page_id, attachment_id)
+
+
+def attachment_metadata(client, item, page_id, attachment_id=None):
     try:
         assert item["type"] == "attachment" and str(item["container"]["id"]) == page_id
         assert re.fullmatch(r"(?:att)?\d+", str(item["id"]))
@@ -80,3 +84,32 @@ def fetch_attachment(client, metadata):
             return b"".join(chunks)
     except httpx.HTTPError:
         raise ConfluenceError("connection_error", "Не удалось скачать вложение; проверьте сеть, PAT и доступ.") from None
+
+
+def list_presentations(client, page_id):
+    if not re.fullmatch(r"[0-9]+", page_id):
+        raise ConfluenceError('invalid_id', 'Некорректный page ID')
+    endpoint = client.base_url + f'/rest/api/content/{page_id}/child/attachment'
+    result, seen, start = [], set(), 0
+    for _ in range(100):
+        data = client._json(endpoint, {'expand': 'version,container', 'limit': '50', 'start': str(start)})
+        rows = data.get('results')
+        if not isinstance(rows, list): raise ConfluenceError('attachment_response', 'Нет списка вложений')
+        for row in rows:
+            if not isinstance(row, dict): raise ConfluenceError('attachment_response', 'Некорректное вложение')
+            aid = str(row.get('id', ''))
+            if aid in seen: raise ConfluenceError('pagination', 'Confluence повторил вложение при пагинации')
+            seen.add(aid)
+            if str(row.get('title', '')).lower().endswith('.pptx'):
+                result.append(attachment_metadata(client, row, page_id))
+        if not data.get('_links', {}).get('next'): return result
+        if not rows: raise ConfluenceError('pagination', 'Пустая страница списка вложений')
+        start += len(rows)
+    raise ConfluenceError('too_large', 'Слишком много вложений на странице; предел 5000')
+
+
+def current_presentation(client, page_id, attachment_id):
+    if not re.fullmatch(r'(?:att)?[0-9]+', attachment_id):
+        raise ConfluenceError('invalid_id', 'Некорректный attachment ID')
+    row = client._json(client.base_url + '/rest/api/content/' + attachment_id, {'expand': 'version,container'})
+    return attachment_metadata(client, row, page_id, attachment_id)

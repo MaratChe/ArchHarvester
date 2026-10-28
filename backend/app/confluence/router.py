@@ -39,6 +39,7 @@ class PreviewCreate(StrictModel):
 
 
 class JobCreate(StrictModel):
+    source_mode: Literal["pages", "attachments"] = "pages"
     preview_id: str
     page_ids: list[str] = Field(min_length=1, max_length=500)
     type_id: str
@@ -113,7 +114,7 @@ def build_router(db, secrets, client_factory, worker):
     @router.post("/jobs", status_code=201)
     def enqueue(body: JobCreate):
         with db.transaction() as c:
-            result = create_job(c,body.preview_id,body.page_ids,body.type_id,body.mode,body.table_index,pipeline_id=body.pipeline_id)
+            result = create_job(c,body.preview_id,body.page_ids,body.type_id,body.mode,body.table_index,pipeline_id=body.pipeline_id,source_mode=body.source_mode)
         worker.wake.set()
         return result
 
@@ -143,7 +144,10 @@ def build_router(db, secrets, client_factory, worker):
             if old["status"] in {"queued","running"}: raise HTTPException(409,"Дождитесь окончания текущей загрузки")
             page_ids = [item["page_id"] for item in old["items"] if item["status"] == "failed"]
             if not page_ids: raise HTTPException(409,"Нет неуспешных страниц для повтора")
-            data = create_job(c,old["preview_id"],page_ids,old["type_id"],old["mode"],old["table_index"],retry_of=id,pipeline_id=old.get("pipeline_id"))
+            data = create_job(c,old["preview_id"],page_ids,old["type_id"],old["mode"],old["table_index"],retry_of=id,pipeline_id=old.get("pipeline_id"),source_mode=old.get("source_mode", "pages"))
+            if old.get("source_mode") == "attachments":
+                data["items"] = [{**item, "status": "queued", "attempts": 0, "error": None, "candidate_id": None} for item in old["items"] if item["status"] == "failed"]
+                c.execute(jobs.update().where(jobs.c.id == data["id"]).values(data=data))
         worker.wake.set()
         return data
 

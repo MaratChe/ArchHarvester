@@ -22,7 +22,7 @@ bash scripts/setup-javascript-runner.sh
 
 | Имя | Назначение |
 |---|---|
-| `document.html` | Нормализованный HTML из HTML/Confluence. Скрипты и активные вложения удалены. Confluence Storage XML предварительно обрабатывается существующим парсером макросов. У PPTX этого поля нет |
+| `document.html` | Нормализованный HTML из HTML/Confluence. Скрипты и активные вложения удалены. Новые страницы Confluence поступают как HTML body.view; прежние Storage XML-снимки обрабатываются совместимым парсером. У PPTX этого поля нет |
 | `document.blocks` | Исходные блоки с `id`, `text` и координатами источника |
 | `document.tables` | Нормализованные таблицы |
 | `params` | JSON-параметры, заданные в редакторе |

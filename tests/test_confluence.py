@@ -49,15 +49,16 @@ def test_untrusted_next_url_and_timeout():
     assert "test-secret" not in str(err.value)
 
 
-def test_fetch_page_validates_identity_version_and_storage():
+def test_fetch_page_validates_identity_version_and_html():
     def handler(req):
         assert req.url.path == "/rest/api/content/42"
-        assert req.url.params["expand"] == "body.storage,version"
-        return httpx.Response(200,json={"id":"42","type":"page","title":"Решение", "version":{"number":7}, "body":{"storage":{"value":"<p>Текст</p>","representation":"storage"}}})
+        assert req.url.params["expand"] == "body.view,version"
+        return httpx.Response(200,json={"id":"42","type":"page","title":"Решение", "version":{"number":7}, "body":{"view":{"value":"<p>Текст</p>","representation":"view"}}})
     with ConfluenceClient("https://wiki.example", "x", transport=httpx.MockTransport(handler)) as client:
         page=client.fetch_page("42")
     assert page["version"] == 7
-    assert page["content"] == b"<p>\xd0\xa2\xd0\xb5\xd0\xba\xd1\x81\xd1\x82</p>"
+    assert b"<p>\xd0\xa2\xd0\xb5\xd0\xba\xd1\x81\xd1\x82</p>" in page["content"]
+    assert page["content"].startswith(b"<!doctype html>")
 
 
 def test_storage_macros_do_not_become_field_values():
@@ -68,6 +69,23 @@ def test_storage_macros_do_not_become_field_values():
     assert "not-a-field" not in str(document["blocks"])
     assert any("include" in w for w in document["warnings"])
     assert document["blocks"][0]["html_path"].startswith("/storage/")
+
+
+def test_html_fetch_does_not_fall_back_to_storage():
+    payload = {'id': '1', 'type': 'page', 'version': {'number': 1}, 'body': {'storage': {'value': '<p>XML</p>'}}}
+    with ConfluenceClient('https://wiki.example', 'x', transport=httpx.MockTransport(lambda r: httpx.Response(200, json=payload))) as client:
+        with pytest.raises(ConfluenceError, match='body.view'):
+            client.fetch_page('1')
+
+
+def test_html_wrapper_escapes_title_and_preserves_rendered_content():
+    payload = {'id': '1', 'type': 'page', 'title': '<b>Title</b>', 'version': {'number': 1},
+               'body': {'view': {'value': '<p>Rendered macro output</p>'}}}
+    with ConfluenceClient('https://wiki.example/confluence', 'x', transport=httpx.MockTransport(lambda r: httpx.Response(200, json=payload))) as client:
+        content = client.fetch_page('1')['content'].decode()
+    assert '<title>&lt;b&gt;Title&lt;/b&gt;</title>' in content
+    assert '<p>Rendered macro output</p>' in content
+    assert '<meta charset="utf-8">' in content
 
 
 def test_storage_xhtml_entities_and_layout():

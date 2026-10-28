@@ -22,7 +22,7 @@ def fake_response(request):
     if id=="103" and not (QA_DIR/"allow-103").exists(): return httpx.Response(403)
     title={"101":"Гарантированная доставка","102":"Резервирование канала","103":"Закрытая страница"}.get(id,"Страница")
     storage=f'<ac:structured-macro ac:name="details"><ac:rich-text-body><table><tr><td>Название</td><td>{title}</td></tr><tr><td>Проблематика</td><td>Потери&nbsp;сообщений при сбоях.</td></tr><tr><td>Владелец</td><td>Команда интеграции</td></tr></table></ac:rich-text-body></ac:structured-macro>'
-    return httpx.Response(200,json={"id":id,"type":"page","title":title,"version":{"number":3},"body":{"storage":{"value":storage}}})
+    return httpx.Response(200,json={"id":id,"type":"page","title":title,"version":{"number":3},"body":{"view":{"value":storage}}})
 
 
 def create():
