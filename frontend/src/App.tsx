@@ -21,12 +21,13 @@ export default function App(){
   useEffect(()=>{if(ready&&page==='registry'&&searchMode==='hybrid')void api<{index?:{base_url?:string}|null}>('/search/index').then(s=>setSearchEndpoint(s.index?(s.index.base_url||'http://127.0.0.1:11434'):'Индекс ещё не создан')).catch(fail);},[ready,page,searchMode]);
   const [error,setError]=useState(''),[message,setMessage]=useState(''),[dataDir,setDataDir]=useState('');
   const [editing,setEditing]=useState<Artifact|null>(),[values,setValues]=useState<Fields>({}),[typeId,setTypeId]=useState('');
+  const [reviewJob,setReviewJob]=useState('');
   const [reviewId,setReviewId]=useState(''),[query,setQuery]=useState(''),[status,setStatus]=useState(''),[busy,setBusy]=useState(false);
   const [history,setHistory]=useState<Artifact[]>([]),[evidence,setEvidence]=useState<{snapshot:Snapshot;blocks:string[]}>();
   const fail=(e:unknown)=>{setError(e instanceof Error?e.message:String(e));setMessage('');};
   const refresh=async()=>{const [t,a,c]=await Promise.all([api<ArtifactType[]>('/types'),api<Artifact[]>('/artifacts'),api<Candidate[]>('/candidates')]);setTypes(t);setItems(a);setAllItems(a);setCandidates(c);setTypeId(id=>id||t[0].id);};
   useEffect(()=>{void init().then(async s=>{setDataDir(s.data_dir);await refresh();setReady(true);}).catch(fail);},[]);
-  const navigate=(p:Page)=>{setPage(p);setEditing(undefined);setReviewId('');setError('');setMessage('');setHistory([]);setItems(allItems);setQuery('');setStatus('');setSearchNotice('');};
+  const navigate=(p:Page)=>{setReviewJob('');setPage(p);setEditing(undefined);setReviewId('');setError('');setMessage('');setHistory([]);setItems(allItems);setQuery('');setStatus('');setSearchNotice('');};
   const open=async(id:string)=>{const a=await api<Artifact>(`/artifacts/${id}`);setEditing(a);setValues(a.fields);setTypeId(a.type_id);setHistory(await api<Artifact[]>(`/artifacts/${id}/revisions`));setError('');};
   const newObject=()=>{setEditing(null);setValues({});setHistory([]);setTypeId(types[0].id);setError('');};
   const currentType=types.find(t=>t.id===typeId);
@@ -40,6 +41,18 @@ export default function App(){
     if(pipelineId)f.append('pipeline_id',pipelineId);
     try{const c=await api<Candidate>(file.name.toLowerCase().endsWith('.pptx')?'/pptx/uploads':'/uploads',{method:'POST',body:f});await refresh();setReviewId(c.id);}catch(e){fail(e);}finally{setBusy(false);}
   }
+  const nextReview=async()=>{
+    const [job,list]=await Promise.all([api<{items:{candidate_id:string|null}[]}>(`/confluence/jobs/${reviewJob}`),api<Candidate[]>('/candidates')]);
+    const ids=[...new Set(job.items.flatMap(i=>i.candidate_id?[i.candidate_id]:[]))];
+    const current=ids.indexOf(reviewId);
+    const ordered=[...ids.slice(current+1),...ids.slice(0,Math.max(0,current))];
+    const next=ordered.find(id=>list.some(c=>c.id===id&&c.status==='pending'));
+    await refresh();
+    setError('');
+    if(next){setReviewId(next);setMessage('');window.scrollTo(0,0);return true;}
+    setMessage('В этой загрузке больше нет предложений, ожидающих проверки. Если загрузка ещё выполняется, следующие результаты появятся позже.');
+    return false;
+  };
   const pending=candidates.filter(c=>c.status==='pending').length;
   return <div className="app-shell">
     <aside className="sidebar"><div className="brand"><span className="brand-mark">A<span>↗</span></span><div>Архитектурный<br/><strong>реестр</strong></div></div><div className="workspace-label">Личное рабочее пространство</div>
@@ -48,8 +61,8 @@ export default function App(){
     </aside>
     <main><header className="topbar"><span>Architecture Registry Studio</span><span className="muted">Объектов: {allItems.length} · на проверке: {pending}</span></header>
       <div className="content">{error&&<div className="error" role="alert"><strong>Не удалось выполнить действие</strong><pre>{error}</pre><button onClick={()=>setError('')}>Закрыть сообщение</button></div>}{message&&<div className="success" role="status">{message}</div>}
-      {!ready?<p role="status">Подключаем локальный реестр…</p>:reviewId?<Review id={reviewId} types={types} onError={fail} onDone={async a=>{setReviewId('');await refresh();if(a){setPage('registry');await open(a.id);setMessage('Результат проверки сохранён');}}}/>:
-      page==='models'?<Models types={types} onError={fail} onReview={setReviewId} onChanged={refresh}/>:page==='pptx'?<Pptx types={types} artifacts={allItems} onReview={setReviewId} onError={fail} onChanged={refresh}/>:page==='pipelines'?<Pipelines types={types} onReview={setReviewId} onError={fail} onChanged={refresh}/>:page==='confluence'?<Confluence types={types} onReview={setReviewId} onError={fail} onChanged={refresh}/>:page==='registry'?<>
+      {!ready?<p role="status">Подключаем локальный реестр…</p>:reviewId?<Review key={reviewId} onNext={reviewJob?nextReview:undefined} id={reviewId} types={types} onError={fail} onDone={async a=>{if(reviewJob&&a){await refresh();setMessage('Результат проверки сохранён');return;}setReviewId('');await refresh();if(a){setPage('registry');await open(a.id);setMessage('Результат проверки сохранён');}}}/>:
+      page==='models'?<Models types={types} onError={fail} onReview={setReviewId} onChanged={refresh}/>:page==='pptx'?<Pptx types={types} artifacts={allItems} onReview={setReviewId} onError={fail} onChanged={refresh}/>:page==='pipelines'?<Pipelines types={types} onReview={setReviewId} onError={fail} onChanged={refresh}/>:page==='confluence'?<Confluence initialJobId={reviewJob} types={types} onReview={(id,jobId)=>{setReviewJob(jobId);setReviewId(id);setError('');setMessage('');}} onError={fail} onChanged={refresh}/>:page==='registry'?<>
         <div className="page-heading"><div><div className="eyebrow">Архитектурные решения</div><h1>{editing!==undefined?(editing?'Карточка объекта':'Новый объект'):'Реестр объектов'}</h1><p>{editing!==undefined?'Реквизиты, история и основания решения.':'Собирайте решения. Сохраняйте основания. Проверяйте изменения.'}</p></div><div className="button-row">{editing!==undefined?<button onClick={()=>setEditing(undefined)}>К реестру</button>:<><a className="button" href="/api/export">Экспорт JSON</a><button className="primary" onClick={newObject}>+ Создать объект</button></>}</div></div>
         {editing!==undefined&&currentType?<div className="editor-grid"><section className="panel"><div className="panel-heading"><h2>{editing?'Реквизиты':'Ручное создание'}</h2>{editing&&<span className={'badge '+editing.status}>{editing.status==='published'?'Опубликован':'Черновик'} · v{editing.revision}</span>}</div>
           <label className="field">Тип объекта<select disabled={!!editing||busy} value={typeId} onChange={e=>{setTypeId(e.target.value);setValues({});}}>{types.map(t=><option key={t.id} value={t.id}>{t.name} · схема {t.version}</option>)}</select></label>

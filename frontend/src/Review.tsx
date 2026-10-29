@@ -4,17 +4,19 @@ import {api, display} from './api';
 import type {Artifact, ArtifactType, Candidate, Fields, Snapshot} from './api';
 import {FieldsForm} from './FieldsForm';
 
-export function Review({id,types,onDone,onError}:{id:string;types:ArtifactType[];onDone:(artifact?:Artifact)=>void;onError:(e:unknown)=>void}) {
+export function Review({id,types,onDone,onError,onNext}:{id:string;types:ArtifactType[];onDone:(artifact?:Artifact)=>void|Promise<void>;onNext?:()=>Promise<boolean>;onError:(e:unknown)=>void}) {
   const [candidate,setCandidate]=useState<Candidate>();
   const [snapshot,setSnapshot]=useState<Snapshot>();
   const [values,setValues]=useState<Fields>({});
   const [selected,setSelected]=useState<string[]>([]);
+  const [initialValues,setInitialValues]=useState('');
   const [busy,setBusy]=useState(false);
   const load = async () => {
     const c = await api<Candidate>(`/candidates/${id}`);
     setCandidate(c);
     // On updates, retain current values until user explicitly chooses proposals.
-    setValues(c.target_id ? {...c.current_fields} : Object.fromEntries(Object.entries(c.proposals).map(([k,p])=>[k,p.value])));
+    const nextValues=c.target_id ? {...c.current_fields} : Object.fromEntries(Object.entries(c.proposals).map(([k,p])=>[k,p.value]));
+    setValues(nextValues);setInitialValues(JSON.stringify(nextValues));
     setSnapshot(await api<Snapshot>(`/snapshots/${c.snapshot_id}`));
   };
   useEffect(()=>{void load().catch(onError);},[id]);
@@ -22,14 +24,18 @@ export function Review({id,types,onDone,onError}:{id:string;types:ArtifactType[]
   const type = types.find(t=>t.id===candidate.type_id)!;
   const stale = candidate.latest_revision!==undefined && candidate.latest_revision!==candidate.base_revision;
   const pending = candidate.status==='pending';
-  async function save(status:string) {
+  async function save(status:string,advance=false) {
     setBusy(true);
-    try {onDone(await api<Artifact>(`/candidates/${id}/review`,{method:'POST',body:JSON.stringify({expected_revision:candidate!.base_revision,fields:values,status})}));}
+    try {await onDone(await api<Artifact>(`/candidates/${id}/review`,{method:'POST',body:JSON.stringify({expected_revision:candidate!.base_revision,fields:values,status})}));if(onNext){await load();if(advance)await onNext();}}
     catch(e){onError(e);} finally {setBusy(false);}
+  }
+  async function next(){
+    if(pending&&JSON.stringify(values)!==initialValues&&!window.confirm('Есть несохранённые изменения. Перейти к следующему предложению без сохранения?'))return;
+    setBusy(true);try{await onNext?.();}catch(e){onError(e);}finally{setBusy(false);}
   }
   const reveal = (ids:string[]) => {setSelected(ids);document.getElementById('source-'+ids[0])?.scrollIntoView({behavior:'smooth',block:'center'});};
   return <>
-    <div className="page-heading"><div><div className="eyebrow">Проверка переноса</div><h1>{candidate.target_id?'Обновление объекта':snapshot.document.format==='pptx'?'Новый объект из PPTX':snapshot.source_metadata?'Новый объект из Confluence':'Новый объект из HTML'}</h1><p>{candidate.source_name} · {type.name}</p></div><button onClick={()=>onDone()}>К списку</button></div>
+    <div className="page-heading"><div><div className="eyebrow">Проверка переноса</div><h1>{candidate.target_id?'Обновление объекта':snapshot.document.format==='pptx'?'Новый объект из PPTX':snapshot.source_metadata?'Новый объект из Confluence':'Новый объект из HTML'}</h1><p>{candidate.source_name} · {type.name}</p></div><div className="button-row">{onNext&&<button disabled={busy} onClick={()=>void next()}>Следующее предложение</button>}<button disabled={busy} onClick={()=>{if(!pending||JSON.stringify(values)===initialValues||window.confirm('Выйти без сохранения изменений?'))void onDone();}}>К списку</button></div></div>
     {candidate.warnings.length>0 && <div className="notice">{candidate.warnings.map((w,i)=><p key={i}>{w}</p>)}</div>}
     <ScriptResults steps={candidate.step_results}/>
     {!pending && <div className="notice">Предложение уже обработано: {({accepted:'принято',rejected:'отклонено',superseded:'заменено новой загрузкой'} as Record<string,string>)[candidate.status]}.</div>}
@@ -47,7 +53,7 @@ export function Review({id,types,onDone,onError}:{id:string;types:ArtifactType[]
           <button disabled={!pending||busy||stale} onClick={()=>{const next={...values};if(k in candidate.current_fields)next[k]=candidate.current_fields[k];else delete next[k];setValues(next);}}> {candidate.target_id?'Оставить текущее':'Не переносить'}</button></div>
         </div>)}</div>
         <FieldsForm type={type} values={values} onChange={setValues} disabled={!pending||busy||stale}/>
-        {pending && <div className="save-bar"><button className="primary" disabled={busy||stale} onClick={()=>void save('published')}>Подтвердить и опубликовать</button><button disabled={busy||stale} onClick={()=>void save('draft')}>Сохранить черновик</button><button className="danger" disabled={busy} onClick={async()=>{setBusy(true);try{await api(`/candidates/${id}/reject`,{method:'POST'});onDone();}catch(e){onError(e);}finally{setBusy(false);}}}>Отклонить</button></div>}
+        {pending && <div className="save-bar">{onNext&&<button className="primary" disabled={busy||stale} onClick={()=>void save('published',true)}>Опубликовать и перейти к следующему</button>}<button className="primary" disabled={busy||stale} onClick={()=>void save('published')}>Подтвердить и опубликовать</button><button disabled={busy||stale} onClick={()=>void save('draft')}>Сохранить черновик</button><button className="danger" disabled={busy} onClick={async()=>{setBusy(true);try{await api(`/candidates/${id}/reject`,{method:'POST'});onDone();}catch(e){onError(e);}finally{setBusy(false);}}}>Отклонить</button></div>}
       </section>
     </div>
   </>;

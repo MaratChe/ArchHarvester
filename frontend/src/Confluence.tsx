@@ -9,7 +9,7 @@ type Item = {attachment_id?:string;parent_title?:string;scan?:boolean;attachment
 type Job = {source_mode?:string;id:string;connection_id:string;created_at:string;cql:string;status:string;cancel_requested:boolean;items:Item[]};
 const labels:Record<string,string>={queued:'В очереди',running:'Загружается',succeeded:'Готово к проверке',partial:'Есть ошибки',failed:'Ошибка',cancelled:'Отменено'};
 
-export function Confluence({types,onReview,onError,onChanged}:{types:ArtifactType[];onReview:(id:string)=>void;onError:(e:unknown)=>void;onChanged:()=>Promise<void>}){
+export function Confluence({types,onReview,onError,onChanged,initialJobId}:{types:ArtifactType[];onReview:(id:string,jobId:string)=>void;initialJobId?:string;onError:(e:unknown)=>void;onChanged:()=>Promise<void>}){
   const [connections,setConnections]=useState<Connection[]>([]),[connectionId,setConnectionId]=useState('');
   const [name,setName]=useState('Confluence'),[baseUrl,setBaseUrl]=useState(''),[token,setToken]=useState('');
   const [showConnect,setShowConnect]=useState(false),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
@@ -17,7 +17,7 @@ export function Confluence({types,onReview,onError,onChanged}:{types:ArtifactTyp
   const [typeId,setTypeId]=useState(types[0]?.id||''),[mode,setMode]=useState('table'),[tableIndex,setTableIndex]=useState('');
   const [sourceMode,setSourceMode]=useState('pages');
   const [pipelineId,setPipelineId]=useState('');
-  const [jobs,setJobs]=useState<Job[]>([]),[activeJob,setActiveJob]=useState('');
+  const [jobs,setJobs]=useState<Job[]>([]),[activeJob,setActiveJob]=useState(initialJobId||'');
   const lastCandidates=useRef('');
   const changed=useRef(onChanged);
   changed.current=onChanged;
@@ -66,7 +66,7 @@ export function Confluence({types,onReview,onError,onChanged}:{types:ArtifactTyp
     </section>
     {job&&<section className="panel import-history"><div className="panel-heading"><h2>Результаты загрузки</h2><div className="button-row">{['running','queued'].includes(job.status)&&<button disabled={busy||job.cancel_requested} onClick={()=>void execute(async()=>{await api(`/confluence/jobs/${job.id}/cancel`,{method:'POST'});await reloadJobs();})}>Отменить загрузку</button>}{!['running','queued'].includes(job.status)&&job.items.some(i=>i.status==='failed')&&<button disabled={busy} onClick={()=>void execute(async()=>{const j=await api<Job>(`/confluence/jobs/${job.id}/retry`,{method:'POST'});setActiveJob(j.id);await reloadJobs();})}>Повторить ошибки</button>}</div></div>
       <p className="muted">«Готово к проверке» означает, что предложение сохранено. Его принятие выполняется в отдельном экране.</p>
-      {job.items.map(i=><div className="import-item" key={i.attachment_id||i.page_id}><div><strong>{i.title}</strong><small>{i.attachment_id?`Вложение ${i.attachment_id} · ${i.parent_title||''} · страница `:'ID '}{i.page_id}{i.page_version?' · версия '+i.page_version:''} · {i.scan?`Страница проверена · PPTX: ${i.attachment_count}`:labels[i.status]}</small>{i.error&&<p className="item-error">{i.error.message}</p>}</div>{i.candidate_id&&<button className="primary" onClick={()=>{void onChanged().then(()=>onReview(i.candidate_id!)).catch(onError);}}>Проверить предложение</button>}</div>)}
+      {job.items.map(i=><div className="import-item" key={i.attachment_id||i.page_id}><div><strong>{i.title}</strong><small>{i.attachment_id?`Вложение ${i.attachment_id} · ${i.parent_title||''} · страница `:'ID '}{i.page_id}{i.page_version?' · версия '+i.page_version:''} · {i.scan?`Страница проверена · PPTX: ${i.attachment_count}`:labels[i.status]}</small>{i.error&&<p className="item-error">{i.error.message}</p>}</div>{i.candidate_id&&<button className="primary" onClick={()=>{void onChanged().then(()=>onReview(i.candidate_id!,job.id)).catch(onError);}}>Проверить предложение</button>}</div>)}
     </section>}
   </>;
 }
