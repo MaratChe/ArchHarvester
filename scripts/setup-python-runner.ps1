@@ -1,4 +1,4 @@
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
-docker build -t architecture-registry-python:1 (Join-Path $projectRoot 'backend/runner')
+docker build -t architecture-registry-python:2 (Join-Path $projectRoot 'backend/runner')
 if ($LASTEXITCODE -ne 0) { throw 'Failed to build isolated Python runner' }

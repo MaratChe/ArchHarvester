@@ -36,7 +36,7 @@ def load_pipeline(c, id, type_id):
 
 
 def script_document(document, db, steps):
-    if 'html' in document or document.get('format') == 'pptx' or not any(s['kind'] == 'javascript' for s in steps):
+    if 'html' in document or document.get('format') == 'pptx' or not any(s['kind'] in {'python', 'javascript'} for s in steps):
         return document
     # Older snapshots retain their block IDs and provenance; hydrate only HTML.
     with db.engine.connect() as c:
@@ -106,7 +106,7 @@ def build_pipeline_router(db):
         for snapshot in inputs:
             row = {"snapshot_id": snapshot["id"], "filename": snapshot["filename"]}
             try:
-                row["result"] = run_pipeline(script_document(snapshot["document"], db, pipeline["steps"]), schema, pipeline["steps"], expected_runtime=pipeline.get("runtime_image_id"),expected_js_runtime=pipeline.get("javascript_runtime_image_id"),client_factory=lambda id:client_for(db,id))
+                row["result"] = run_pipeline(script_document(snapshot["document"], db, pipeline["steps"]), schema, pipeline["steps"], expected_runtime=pipeline.get("runtime_image_id"),expected_js_runtime=pipeline.get("javascript_runtime_image_id"),client_factory=lambda id:client_for(db,id),capture_io=True)
                 from .llm_history import record
                 with db.transaction() as c:record(c,row['result'])
                 old = {}
@@ -126,6 +126,7 @@ def build_pipeline_router(db):
             except HTTPException as e:
                 from .llm_history import record_failure
                 with db.transaction() as c:row['error_run_id']=record_failure(c,e)
+                row['steps']=getattr(e,'step_results',[])
                 row['completed_llm_runs']=getattr(e,'llm_completed',{}).get('llm_runs',[])
                 row["error"] = str(e.detail); report["ok"] = False
             report["results"].append(row)

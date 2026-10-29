@@ -8,7 +8,7 @@ import time
 from uuid import uuid4
 from fastapi import HTTPException
 
-IMAGE = "architecture-registry-python:1"
+IMAGE = "architecture-registry-python:2"
 TIMEOUT = 30
 OUTPUT_LIMIT = 1024 * 1024
 
@@ -23,10 +23,10 @@ def runtime_status(image=IMAGE):
     except (OSError, subprocess.TimeoutExpired): return {"available": False, "message": "Docker не отвечает"}
 
 
-def run_python(code, document, params, *, expected_runtime=None, image=IMAGE):
+def run_python(code, document, params, *, expected_runtime=None, image=IMAGE, previous_results=None):
     state = runtime_status(expected_runtime or image)
     if not state["available"]: raise HTTPException(503, state["message"])
-    payload = json.dumps({"code": code, "document": document, "params": params}, ensure_ascii=False, allow_nan=False).encode()
+    payload = json.dumps({"code": code, "document": document, "params": params, "previous_results": previous_results or {"fields": {}, "steps": [], "conflicts": []}}, ensure_ascii=False, allow_nan=False).encode()
     if len(payload) > 16 * 1024 * 1024: raise HTTPException(422, "Вход Python превышает 16 MiB")
     name = "arch-step-" + uuid4().hex
     docker = shutil.which("docker")

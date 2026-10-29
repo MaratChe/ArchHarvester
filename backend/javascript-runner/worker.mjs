@@ -19,8 +19,26 @@ const toMarkdown = html => {
   if (typeof html !== 'string') throw Error('HTML is unavailable');
   return converter.turndown(html);
 };
+let output = null;
+const set_output = value => {
+  // Reject values that JSON.stringify would silently drop or coerce.
+  const seen = new Set();
+  const check = v => {
+    if (v === null || typeof v === 'string' || typeof v === 'boolean') return;
+    if (typeof v === 'number' && Number.isFinite(v)) return;
+    if (typeof v !== 'object' || seen.has(v) || (!Array.isArray(v) && Object.getPrototypeOf(v) !== Object.prototype)) throw Error('Output must be JSON');
+    seen.add(v);
+    for (const item of Object.values(v)) check(item);
+    seen.delete(v);
+  };
+  check(value);
+  const serialized = JSON.stringify(value);
+  if (Buffer.byteLength(serialized) > 256 * 1024) throw Error('Output limit');
+  output = JSON.parse(serialized);
+};
 const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
-await new AsyncFunction('document', 'params', 'emit', 'warnings', 'toMarkdown', 'saveMarkdown', workerData.code)(
+await new AsyncFunction('document', 'params', 'emit', 'warnings', 'toMarkdown', 'saveMarkdown', 'previous_results', 'set_output', workerData.code)(
   workerData.document, workerData.params, emit, warnings, toMarkdown, saveMarkdown,
+  workerData.previous_results || {fields: {}, steps: [], conflicts: []}, set_output,
 );
-parentPort.postMessage({proposals, warnings, files});
+parentPort.postMessage({proposals, warnings, files, output});

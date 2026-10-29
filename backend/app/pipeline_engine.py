@@ -1,5 +1,6 @@
 """Deterministic rules and isolated Python share one evidence validation boundary."""
 import json
+from copy import deepcopy
 from fastapi import HTTPException
 from jsonschema import Draft202012Validator, FormatChecker
 from .evidence import evidence_for
@@ -31,20 +32,32 @@ def validate_steps(steps, schema):
     if len(json.dumps(steps, ensure_ascii=False)) > 100000: raise HTTPException(422, "Слишком большой пайплайн")
 
 
-def run_pipeline(document, schema, steps, *, expected_runtime=None,expected_js_runtime=None,client_factory=None):
-    audit={'llm_runs':[],'_llm_raw':[]}
-    try:return _run_pipeline(document,schema,steps,expected_runtime=expected_runtime,expected_js_runtime=expected_js_runtime,client_factory=client_factory,audit=audit)
+def run_pipeline(document, schema, steps, *, expected_runtime=None,expected_js_runtime=None,client_factory=None, capture_io=False):
+    audit={'llm_runs':[],'_llm_raw':[], 'steps':[]}
+    try:return _run_pipeline(document,schema,steps,expected_runtime=expected_runtime,expected_js_runtime=expected_js_runtime,client_factory=client_factory,audit=audit,capture_io=capture_io)
     except HTTPException as exc:
         exc.llm_completed=audit
+        exc.step_results=audit['steps']
+        if capture_io and audit['steps']:
+            audit['steps'][-1]['error']=str(exc.detail)
         raise
 
 
-def _run_pipeline(document,schema,steps,*,expected_runtime=None,expected_js_runtime=None,client_factory=None,audit):
+def _run_pipeline(document,schema,steps,*,expected_runtime=None,expected_js_runtime=None,client_factory=None,audit,capture_io=False):
     validate_steps(steps, schema)
     proposals, warnings, diagnostics, conflicts = {}, list(document.get("warnings", [])), [], set()
     block_map = {b["id"]: b for b in document["blocks"]}
     llm_runs, llm_raw = audit['llm_runs'], audit['_llm_raw']
     for index, step in enumerate(steps, 1):
+        previous = {'fields': deepcopy(proposals), 'conflicts': sorted(conflicts),
+                    'steps': [{k: deepcopy(v) for k, v in d.items() if k not in {'input', 'result'}} for d in diagnostics]}
+        diagnostic = {'index': index, 'kind': step['kind'], 'emitted_fields': [], 'warnings': []}
+        if capture_io:
+            diagnostic['input'] = trace_value({'document': document, 'params': step.get('params', {}),
+                                               'settings': step, 'previous_results': previous if step['kind'] in {'python', 'javascript'} or step.get('include_previous') else None})
+            audit['steps'].append(diagnostic)
+        result = {}
+
         kind, emitted, step_warnings = step["kind"], [], []
         if kind in {"table", "sections"}:
             found, step_warnings = extract(document, schema, kind, step.get("table_index"))
@@ -63,9 +76,7 @@ def _run_pipeline(document,schema,steps,*,expected_runtime=None,expected_js_runt
             if not client_factory and provider_id!='ollama':raise HTTPException(422,'Подключение провайдера недоступно')
             context=None
             if step.get('include_previous',False):
-                context={'fields':{key:{k:p[k] for k in ('value','method','step','evidence')} for key,p in proposals.items()},
-                         'steps':[{k:d[k] for k in ('index','kind','emitted_fields','warnings')} for d in diagnostics],
-                         'conflicts':sorted(conflicts)}
+                context=previous
             try:
                 result = extract_fields(document,schema,step['model'],client=client_factory(provider_id) if client_factory else None,
                                         prompt=step.get('prompt',''),previous_results=context)
@@ -77,14 +88,18 @@ def _run_pipeline(document,schema,steps,*,expected_runtime=None,expected_js_runt
             llm_runs.append(result['metadata']);llm_raw.append({'id':result['metadata']['run_id'],**result['trace']})
         elif kind == 'javascript':
             from .javascript_runner import run_javascript
-            result = run_javascript(step['code'], document, step.get('params', {}), expected_runtime=expected_js_runtime)
+            result = run_javascript(step['code'], document, step.get('params', {}), expected_runtime=expected_js_runtime, previous_results=deepcopy(previous))
             emitted, step_warnings = result.get('proposals'), result.get('warnings', [])
         else:
             from .python_runner import run_python
-            result = run_python(step["code"], document, step.get("params", {}), expected_runtime=expected_runtime)
+            result = run_python(step["code"], document, step.get("params", {}), expected_runtime=expected_runtime, previous_results=deepcopy(previous))
             emitted, step_warnings = result.get("proposals"), result.get("warnings", [])
         if not isinstance(emitted, list) or len(emitted) > 200 or not isinstance(step_warnings, list) or not all(isinstance(w, str) and len(w) <= 2000 for w in step_warnings):
             raise HTTPException(422, f"Шаг {index}: неверный контракт StepResult")
+        output = checked_output(result.get('output'))
+        if capture_io:
+            diagnostic['result'] = trace_value({'proposals': emitted, 'warnings': step_warnings,
+                                                 'output': output, 'files': result.get('files', [])})
         for item in emitted:
             if not isinstance(item, dict): raise HTTPException(422, f"Шаг {index}: неверное предложение")
             key = item.get("field")
@@ -110,7 +125,11 @@ def _run_pipeline(document,schema,steps,*,expected_runtime=None,expected_js_runt
                 proposals[key]['model_metadata']=result['metadata']
                 proposals[key]['evidence']=[{**evidence_for(document,block_map[e['block_id']]),'quote':e['quote']} for e in item['evidence']]
         warnings.extend(f"Шаг {index}: {w}" for w in step_warnings)
-        diagnostics.append({"index": index, "kind": kind, "emitted_fields": [i.get("field") for i in emitted], "warnings": step_warnings})
+        diagnostic.update(emitted_fields=[i.get('field') for i in emitted], warnings=step_warnings, output=output)
+        if capture_io:
+            diagnostic['result'] = trace_value({'proposals': emitted, 'warnings': step_warnings, 'output': output,
+                                               'files': result.get('files', []), 'fields': proposals, 'conflicts': sorted(conflicts)})
+        diagnostics.append(diagnostic)
         if kind == 'javascript':
             diagnostics[-1]['javascript_runtime_image_id'] = result['runtime_image_id']
             diagnostics[-1]['files'] = result.get('files', [])
@@ -118,3 +137,26 @@ def _run_pipeline(document,schema,steps,*,expected_runtime=None,expected_js_runt
         if kind == 'llm':diagnostics[-1]['model_metadata']=result['metadata']
     if not proposals: warnings.append("Нет предложений: проверьте правила или заполните поля вручную")
     return {"proposals": proposals, "warnings": warnings, "steps": diagnostics, "llm_runs":llm_runs, "_llm_raw":llm_raw}
+
+
+def checked_output(value):
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, allow_nan=False)
+        if len(encoded.encode('utf-8')) > 256 * 1024:
+            raise HTTPException(422, 'Результат шага output превышает 256 KiB')
+        return json.loads(encoded)
+    except (TypeError, ValueError, RecursionError, UnicodeError):
+        raise HTTPException(422, 'Результат шага output должен быть корректным JSON') from None
+
+
+def trace_value(value):
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError, RecursionError):
+        # Keep diagnostics from turning a rejected script response into HTTP 500.
+        return {'invalid_json': True, 'preview': repr(value)[:512 * 1024]}
+    raw = encoded.encode('utf-8')
+    if len(raw) <= 512 * 1024:
+        return json.loads(encoded)
+    return {'truncated': True, 'size_bytes': len(raw),
+            'preview': raw[:512 * 1024].decode('utf-8', errors='ignore')}

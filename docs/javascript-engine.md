@@ -78,3 +78,5 @@ Markdown хранится в результатах теста/предложе�
 - `console.log` не попадает в отчёт; используйте `warnings.push`. Ошибки исполнения возвращают общее сообщение без полного stack trace.
 
 Использованы [Node.js Worker Threads](https://nodejs.org/api/worker_threads.html) и [Turndown](https://github.com/mixmark-io/turndown).
+
+Обновление 29.10.2026: Python/JS передают JSON и Markdown между шагами; LLM с `include_previous` также получает эти результаты. См. [актуальный контракт передачи данных и диагностики](pipeline-step-data.md).

@@ -3,7 +3,7 @@ import re
 from fastapi import HTTPException
 from .python_runner import run_python, runtime_status as container_status
 
-IMAGE = 'architecture-registry-javascript:1'
+IMAGE = 'architecture-registry-javascript:2'
 
 
 def runtime_status():
@@ -13,9 +13,9 @@ def runtime_status():
     return state
 
 
-def run_javascript(code, document, params, *, expected_runtime=None):
+def run_javascript(code, document, params, *, expected_runtime=None, previous_results=None):
     try:
-        result = run_python(code, document, params, expected_runtime=expected_runtime, image=IMAGE)
+        result = run_python(code, document, params, expected_runtime=expected_runtime, image=IMAGE, previous_results=previous_results)
     except HTTPException as exc:
         raise HTTPException(exc.status_code, str(exc.detail).replace('Python', 'JavaScript').replace('setup-python-runner', 'setup-javascript-runner')) from None
     files = result.get('files', [])
